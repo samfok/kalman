@@ -37,7 +37,7 @@ class Kalman:
     R: MxM numpy array
         Measurement noise covariance matrix
     """
-    def __init__(self, A, B, H, Q, R, xhat0, Phat_0):
+    def __init__(self, A, B, H, Q, R, xhat0, Phat0):
         self.A = A
         self.B = B
         self.Q = Q
@@ -61,12 +61,13 @@ class Kalman:
         self.K_process = np.zeros((N, M))
         self.K_measure = np.zeros((M, N))
         self.K = np.zeros((N, M))
-
+        self.eye = np.eye(N)
 
     def step(self, z):
         """Step the Kalman filter forward in time"""
         self._predict()
         self._update(z)
+        return self.xhat, self.p, self.K
 
     def _predict(self, z):
         """Predict the current state from the previous state estimate"""
@@ -80,6 +81,7 @@ class Kalman:
         self.K_measure = np.dot(self.H, np.dot(self.p_predict, self.H.T)) + self.R
         self.K = np.dot(self.K_process, np.linalg.inv(self.K_measure))
         self.xhat = xhat_predict + np.dot(self.K, z-self.z_predict)
+        self.p = np.dot(self.eye - np.dot(self.K, self.H), self.p_predict)
 
 class LDS:
     """Linear dynamical system
@@ -150,3 +152,13 @@ class LDS:
     def initial_condition(self):
         """Return the initial condition of the LDS"""
         return self.x0, self.y0
+
+    @property
+    def state_dimensions(self):
+        """Get the dimensionality of the system"""
+        return A.shape[0]
+
+    @property
+    def output_dimensions(self):
+        """Get the dimensionality of the system"""
+        return C.shape[0]
