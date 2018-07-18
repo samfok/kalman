@@ -37,9 +37,10 @@ class Kalman:
     R: MxM numpy array
         Measurement noise covariance matrix
     """
-    def __init__(self, A, B, H, Q, R, xhat0, Phat0):
+    def __init__(self, A, B, H, Q, R, xhat0, phat0):
         self.A = A
         self.B = B
+        self.H = H
         self.Q = Q
         self.R = R
 
@@ -53,9 +54,9 @@ class Kalman:
         assert R.shape == (M, M)
 
         self.xhat_predict = np.zeros(N)
-        self.xhat = np.zeros(N)
+        self.xhat = xhat0
         self.p_predict = np.zeros((N, N))
-        self.p = np.zeros((N, N))
+        self.p = phat0
 
         self.z_predict = np.zeros(L)
         self.K_process = np.zeros((N, M))
@@ -63,13 +64,13 @@ class Kalman:
         self.K = np.zeros((N, M))
         self.eye = np.eye(N)
 
-    def step(self, z):
+    def step(self, u, z):
         """Step the Kalman filter forward in time"""
-        self._predict()
+        self._predict(u)
         self._update(z)
         return self.xhat, self.p, self.K
 
-    def _predict(self, z):
+    def _predict(self, u):
         """Predict the current state from the previous state estimate"""
         self.xhat_predict = np.dot(self.A, self.xhat) + np.dot(self.B, u)
         self.p_predict = np.dot(self.A, np.dot(self.p, self.A.T)) + self.Q
@@ -80,7 +81,7 @@ class Kalman:
         self.K_process = np.dot(self.p_predict, self.H.T)
         self.K_measure = np.dot(self.H, np.dot(self.p_predict, self.H.T)) + self.R
         self.K = np.dot(self.K_process, np.linalg.inv(self.K_measure))
-        self.xhat = xhat_predict + np.dot(self.K, z-self.z_predict)
+        self.xhat = self.xhat_predict + np.dot(self.K, z-self.z_predict)
         self.p = np.dot(self.eye - np.dot(self.K, self.H), self.p_predict)
 
 class LDS:
@@ -111,7 +112,7 @@ class LDS:
     R: MxM numpy array
         Measurement noise covariance matrix
     """
-    def __init__(self, A, B, C, D, x0, Q, R):
+    def __init__(self, A, B, C, D, Q, R, x0):
         self.A = A
         self.B = B
         self.C = C
@@ -128,6 +129,7 @@ class LDS:
         assert C.shape == (M, N)
         assert D.shape == (M, L)
         assert Q.shape == (N, N)
+        print(R)
         assert R.shape == (M, M)
 
         assert x0.shape == (N,)
