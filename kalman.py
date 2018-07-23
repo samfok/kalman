@@ -124,13 +124,12 @@ class LDS:
         L = B.shape[1]
         M = C.shape[0]
 
-        assert A.shape == (N, N) 
-        assert B.shape == (N, L)
-        assert C.shape == (M, N)
-        assert D.shape == (M, L)
-        assert Q.shape == (N, N)
-        print(R)
-        assert R.shape == (M, M)
+        assert A.shape == (N, N), ("Expected shape {}, got shape {}".format((N, N), A.shape))
+        assert B.shape == (N, L), ("Expected shape {}, got shape {}".format((N, L), B.shape))
+        assert C.shape == (M, N), ("Expected shape {}, got shape {}".format((M, N), C.shape))
+        assert D.shape == (M, L), ("Expected shape {}, got shape {}".format((M, L), D.shape))
+        assert Q.shape == (N, N), ("Expected shape {}, got shape {}".format((N, N), Q.shape))
+        assert R.shape == (M, M), ("Expected shape {}, got shape {}".format((M, M), R.shape))
 
         assert x0.shape == (N,)
 
@@ -158,9 +157,9 @@ class LDS:
     @property
     def state_dimensions(self):
         """Get the dimensionality of the system"""
-        return A.shape[0]
+        return self.A.shape[0]
 
     @property
     def output_dimensions(self):
         """Get the dimensionality of the system"""
-        return C.shape[0]
+        return self.C.shape[0]
