@@ -20,7 +20,7 @@ class GyroNet(nengo.Network):
         dim 0: angular position
         dim 1: angular velocity
     """
-    def __init__(self, inertia, g_tau, label="gyro"):
+    def __init__(self, inertia=1., g_tau=1., label="gyro"):
         super(GyroNet, self).__init__(label)
 
         A = np.array([[0, 1], [0, 0]])
@@ -39,4 +39,3 @@ class GyroNet(nengo.Network):
 
             self.output= nengo.Node(lambda t, x: x, size_in=2, size_out=2, label="output")
             nengo.Connection(gyro_state, self.output, synapse=None)
-
