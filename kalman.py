@@ -1,4 +1,5 @@
 import numpy as np
+import nengo
 
 class Kalman:
     """Kalman filter
@@ -163,3 +164,117 @@ class LDS:
     def output_dimensions(self):
         """Get the dimensionality of the system"""
         return self.C.shape[0]
+
+def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000):
+    """Iteratively finds the steady state Kalman gain
+
+    Parameters
+    ----------
+    A : NxN numpy array
+        System dynamics
+        Describes how the previous state mixes to generate the current state
+    C : MxN numpy array
+        Measurement matrix
+        Describes how the system's dimensions mix to produce the output measurement
+    Q : NxN numpy array
+        Intrinsic noise covariance matrix
+    R : MxM numpy array
+        Measurement noise covariance matrix
+    """
+    P = P0
+    M, N = C.shape
+
+    I_NN = np.eye(N) # NxN identity matrix
+    K_prev = np.ones((N, M))
+    entries = N*M
+
+    iter_count = 0
+    diff = 2*tol
+    while iter_count > max_iter or diff > tol:
+        P_predict = np.dot(A, np.dot(P, A.T)) + Q
+        K_process = np.dot(P_predict, C.T)
+        K_measure = np.dot(C, np.dot(P_predict, C.T)) + R
+        K = np.dot(K_process, np.linalg.inv(K_measure))
+        P = np.dot(np.dot(I_NN-np.dot(K, C)), P_predict)
+        diff = np.sum(np.abs(K - K_prev)) / entries
+        iter_count += 1
+        K_prev = K
+    print(iter_count, diff)
+
+    return K
+
+def solve_k_ss(A, C, Q, R, P0):
+    """Finds the steady state Kalman gain by analytically"""
+    # I'm not sure this is the correct formula, do we have a citation or derivation? - SF
+    R_inv = np.linalg.inv(R)
+    K_den = np.eye+np.dot(Q, np.dot(C, np.dot(R_inv, C)))
+    K_num = np.dot(Q, np.dot(C.T, R_inv))
+    K = np.dot(np.linalg.inv(K_den), K_num)
+    return K
+
+class KalmanNetwork(nengo.Network):
+    """A Kalman filter nengo Network
+
+    Parameters
+    ----------
+    neurons : int
+        number of neurons
+    A : NxN numpy array
+        System dynamics
+        Describes how the previous state mixes to generate the current state
+    B: NxL numpy array
+        System input matrix
+        Describes how the inputs mix to drive the system
+    C : MxN numpy array
+        Measurement matrix
+        Describes how the system's dimensions mix to produce the output measurement
+    Q : NxN numpy array
+        Intrinsic noise covariance matrix
+    R : MxM numpy array
+        Measurement noise covariance matrix
+
+    Attributes
+    ----------
+    input_y : nengo Node
+        measurement y
+    output : nengo Node
+        delivers the output state estimate
+    input_u : nengo Node
+        if B provided
+            input u of the system (0 by default)
+    """
+    def __init__(
+            self, neurons, A, C, Q, R,
+            tau_syn=0.01, P0=0, delta_t=0.001, B=None, label="KalmanNetwork"):
+        super(KalmanNetwork, self).__init__(label=label)
+        M, N = C.shape
+        L = B.shape[1]
+
+        self.K = find_k_ss(A, C, Q, R, P0)
+
+        """
+        Kalman filter update is described in discrete time
+
+        with steady state kalman gain
+            xhat[t] = (I-KC)xhat[t-1] + Ky[t]
+        convert to continuous time
+            in general,
+            dx/dt = (x[t]- x[t-1]) / delta_t so x[t] = dx/dt delta_t + x[t-1]
+            therefore
+                dxhat/dt = -KC/delta_t xhat + K/delta_t y
+        convert to NEF style feedback and feedforward gains
+        dxhat/dt = -tau/delta_t KC xhat + tau/delta_t K y
+        """
+        A_NEF = -tau_syn/delta_t * np.dot(self.K, C)
+        B_NEF = tau_syn/delta_t * self.K
+
+        with self:
+            self.input_y = nengo.Node(lambda t, x: x, size_in=M)
+            self.ens = nengo.Ensemble(neurons, N)
+            self.output = nengo.Node(lambda t, x: x, size_in=N)
+            if B:
+                B_input = tau_syn/delta_t * B
+                self.input_u = nengo.Node(lambda t, x: x, size_in=L)
+                nengo.Connection(self.input_u, self.ens, transform=B_input, synapse=tau_syn)
+            nengo.Connection(self.input_y, self.ens, transform=B_NEF, synapse=tau_syn)
+            nengo.Connection(self.ens, self.ens, transform=A_NEF, synapse=tau_syn)
