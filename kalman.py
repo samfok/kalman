@@ -14,7 +14,7 @@ class Kalman:
     x[t] = Ax[t-1] + Bu[t-1] + w
     z[t] = Hx[t] + v
 
-    x is the N-dimensional state vector 
+    x is the N-dimensional state vector
     u is the L-dimensional input vector
     w is the L-dimensional process noise vector
       u~Normal(0, Q)
@@ -49,7 +49,7 @@ class Kalman:
         L = B.shape[1]
         M = H.shape[0]
 
-        assert A.shape == (N, N) 
+        assert A.shape == (N, N)
         assert B.shape == (N, L)
         assert Q.shape == (N, N)
         assert R.shape == (M, M)
@@ -87,7 +87,7 @@ class Kalman:
 
 class LDS:
     """Linear dynamical system
-    
+
     With optional stochastic inputs
 
     Follows
@@ -212,7 +212,10 @@ def solve_k_ss(A, C, Q, R, P0):
     K = np.dot(np.linalg.inv(K_den), K_num)
     return K
 
-class KalmanNetwork(nengo.Network):
+def pass_fun(t, x):
+    return x
+
+class KalmanNet(nengo.Network):
     """A Kalman filter nengo Network
 
     Parameters
@@ -246,7 +249,7 @@ class KalmanNetwork(nengo.Network):
     def __init__(
             self, neurons, A, C, Q, R,
             tau_syn=0.01, P0=0, delta_t=0.001, B=None, label="KalmanNetwork"):
-        super(KalmanNetwork, self).__init__(label=label)
+        super(KalmanNet, self).__init__(label=label)
         M, N = C.shape
         L = B.shape[1]
 
@@ -278,3 +281,31 @@ class KalmanNetwork(nengo.Network):
                 nengo.Connection(self.input_u, self.ens, transform=B_input, synapse=tau_syn)
             nengo.Connection(self.input_y, self.ens, transform=B_NEF, synapse=tau_syn)
             nengo.Connection(self.ens, self.ens, transform=A_NEF, synapse=tau_syn)
+
+class LDSNet(nengo.Network):
+    """Implements an linear dynamical system with noise
+
+    """
+    def __init__(self, A, B, C, tau_syn=0.1, label="LDSNet"):
+        super(LDSNet, self).__init__(label=label)
+        N = A.shape[0]
+        L = B.shape[1]
+        M = C.shape[0]
+
+        B_NEF = tau_syn * B
+        A_NEF = tau_syn * A + np.eye(N)
+        with self:
+            self.input = nengo.Node(pass_fun, size_in=L)
+            self.output_x = nengo.Node(pass_fun, size_in=N)
+            self.output_y = nengo.Node(pass_fun, size_in=M)
+            self.ens = nengo.Ensemble(
+                n_neurons=1, dimensions=N, neuron_type=nengo.neurons.Direct())
+
+            # connect core dynamics
+            nengo.Connection(self.input, self.ens, transform=B_NEF, synapse=tau_syn)
+            nengo.Connection(self.ens, self.ens, transform=A_NEF, synapse=tau_syn)
+
+            # connect readout dynamics
+            nengo.Connection(self.input, self.output_x, transform=B_NEF, synapse=tau_syn)
+            nengo.Connection(self.ens, self.output_x, transform=A_NEF, synapse=tau_syn)
+
