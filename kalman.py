@@ -215,6 +215,11 @@ def solve_k_ss(A, C, Q, R, P0):
 def pass_fun(t, x):
     return x
 
+def add_random_noise(t, mean, cov):
+    """Adds random noise to a vector"""
+    noise = np.random.multivariate_normal(mean, cov)
+    return noise
+
 class KalmanNet(nengo.Network):
     """A Kalman filter nengo Network
 
@@ -285,8 +290,38 @@ class KalmanNet(nengo.Network):
 class LDSNet(nengo.Network):
     """Implements an linear dynamical system with noise
 
+    With optional stochastic inputs
+
+    Follows
+      dx/dt = Ax + Bu + w
+      y = Cx + Du + v
+
+    Parameters
+    ----------
+    A: NxN numpy array
+        System dynamics
+        Describes how the previous state mixes to generate the current state
+    B: NxL numpy array
+        System input matrix
+        Describes how the inputs mix to drive the system
+    C: MxN numpy array
+        Measurement matrix
+        Describes how the system's dimensions mix to produce the output measurement
+    D: MxL numpy array (optional)
+        Bypass matrix
+        Describes how the inputs mix to contribute to the output measurement
+    Q: NxN numpy array (optional)
+        Intrinsic noise covariance matrix
+    R: MxM numpy array (optional)
+        Measurement noise covariance matrix
+
+    Attributes
+    ----------
+    input: 
+    state:
+    output:
     """
-    def __init__(self, A, B, C, tau_syn=0.1, label="LDSNet"):
+    def __init__(self, A, B, C, D=None, Q=None, R=None, tau_syn=0.1, label="LDSNet"):
         super(LDSNet, self).__init__(label=label)
         N = A.shape[0]
         L = B.shape[1]
@@ -296,16 +331,21 @@ class LDSNet(nengo.Network):
         A_NEF = tau_syn * A + np.eye(N)
         with self:
             self.input = nengo.Node(pass_fun, size_in=L)
-            self.output_x = nengo.Node(pass_fun, size_in=N)
-            self.output_y = nengo.Node(pass_fun, size_in=M)
-            self.ens = nengo.Ensemble(
-                n_neurons=1, dimensions=N, neuron_type=nengo.neurons.Direct())
+            self.state = nengo.Node(pass_fun, size_in=N)
+            self.output = nengo.Node(pass_fun, size_in=M)
 
             # connect core dynamics
-            nengo.Connection(self.input, self.ens, transform=B_NEF, synapse=tau_syn)
-            nengo.Connection(self.ens, self.ens, transform=A_NEF, synapse=tau_syn)
+            nengo.Connection(self.input, self.state, transform=B_NEF, synapse=tau_syn)
+            nengo.Connection(self.state, self.state, transform=A_NEF, synapse=tau_syn)
+            if Q: # add noise if present
+                self.process_noise = nengo.Node(lambda t: add_random_noise(t, np.zeros(N), Q))
+                nengo.Connection(
+                    self.process_noise, self.state, transform=tau_syn, synapse=tau_syn)
 
-            # connect readout dynamics
-            nengo.Connection(self.input, self.output_x, transform=B_NEF, synapse=tau_syn)
-            nengo.Connection(self.ens, self.output_x, transform=A_NEF, synapse=tau_syn)
-
+            # connect readout
+            nengo.Connection(self.state, self.output, transform=C, synapse=None)
+            if D:
+                nengo.Connection(self.input, self.output, transform=D, synapse=None)
+            if R:
+                self.output_noise = nengo.Node(lambda t: add_random_noise(t, np.zeros(M), R))
+                nengo.Connection(self.output_noise, self.output, synapse=None)
