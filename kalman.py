@@ -165,7 +165,7 @@ class LDS:
         """Get the dimensionality of the system"""
         return self.C.shape[0]
 
-def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000):
+def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000, dbg=False):
     """Iteratively finds the steady state Kalman gain
 
     Parameters
@@ -199,8 +199,9 @@ def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000):
         diff = np.sum(np.abs(K - K_prev)) / entries
         iter_count += 1
         K_prev = K
-    print(iter_count, diff)
 
+    if dbg:
+        print(iter_count, diff)
     return K
 
 def solve_k_ss(A, C, Q, R, P0):
@@ -219,6 +220,13 @@ def add_random_noise(t, mean, cov):
     """Adds random noise to a vector"""
     noise = np.random.multivariate_normal(mean, cov)
     return noise
+
+def c_to_d_kf(A_CT, B_CT, Q_CT, dt=0.001):
+    """Convert continuous form LDS equations into their discrete form"""
+    A_DT = dt * A_CT + np.eye(A_CT.shape[0])
+    B_DT = dt * B_CT
+    Q_DT = Q_CT * dt
+    return A_DT, B_DT, Q_DT
 
 class KalmanNet(nengo.Network):
     """A Kalman filter nengo Network
@@ -251,7 +259,7 @@ class KalmanNet(nengo.Network):
         input u of the system
     """
     def __init__(self, neurons, A, B, C, Q, R,
-                 tau_syn=0.01, P0=0, delta_t=0.001, label="KalmanNetwork"):
+                 tau_syn=0.01, P0=0, dt=0.001, label="KalmanNetwork"):
         super(KalmanNet, self).__init__(label=label)
         M, N = C.shape
         L = B.shape[1]
@@ -259,39 +267,45 @@ class KalmanNet(nengo.Network):
         K_ss = find_k_ss(A, C, Q, R, P0)
 
         # Kalman Filter steady-state form
-        # xhat[t] = A_DT xhat[t-1] + B_DT u[t-1] + K_ss y[t]
-        A_DT = np.dot(np.eye(N) - np.dot(K_ss, C), A)
-        B_DT = np.dot(np.eye(N) - np.dot(K_ss, C), B)
-        # print("A_DT", A_DT)
-        # print("B_DT", A_DT)
-        # print("K_SS", K_ss)
+        # xhat[t] = A xhat[t-1] + B u[t-1] + K_ss y[t]
+        A = np.dot(np.eye(N) - np.dot(K_ss, C), A)
+        B = np.dot(np.eye(N) - np.dot(K_ss, C), B)
+        print("A", A)
+        print("B", A)
+        print("K_SS", K_ss)
 
         # Convert to continuous time form
-        # x[t] = dx/dt delta_t + x[t-1]
+        # x[t] = xdot dt + x[t-1]
         # dx/dt = A_CT xhat[t-1] + B_CT u[t-1] + K_ss_CT y[t]
-        A_CT = (A_DT - np.eye(N)) / delta_t
-        B_CT = B_DT / delta_t
-        K_ss_CT = K_ss / delta_t
-        # print("A_CT", A_CT)
-        # print("B_CT", A_CT)
-        # print("K_SS_CT", K_ss_CT)
+        A_CT = (A - np.eye(N)) / dt
+        B_CT = B / dt
+        K_ss_CT = K_ss / dt
+        print("A_CT", A_CT)
+        print("B_CT", A_CT)
+        print("K_SS_CT", K_ss_CT)
 
         # Convert to NEF matrices
         A_NEF = tau_syn * A_CT + np.eye(N)
         B_NEF = tau_syn * B_CT
         K_NEF = tau_syn * K_ss_CT
-        # print("A_NEF", A_NEF)
-        # print("B_NEF", A_NEF)
-        # print("K_NEF", K_NEF)
+        print("A_NEF", A_NEF)
+        print("B_NEF", A_NEF)
+        print("K_NEF", K_NEF)
 
         with self:
             self.input_system = nengo.Node(pass_fun, size_in=L)
             self.input_measurement = nengo.Node(pass_fun, size_in=M)
-            self.state = nengo.Ensemble(neurons, N, neuron_type=nengo.neurons.Direct())
+            # self.state = nengo.Ensemble(neurons, N, neuron_type=nengo.neurons.Direct())
+            self.state = nengo.Ensemble(neurons, N)
 
             nengo.Connection(self.input_system, self.state, transform=B_NEF, synapse=tau_syn)
             nengo.Connection(self.input_measurement, self.state, transform=K_NEF, synapse=tau_syn)
             nengo.Connection(self.state, self.state, transform=A_NEF, synapse=tau_syn)
+
+            self.readout = nengo.Node(pass_fun, size_in=N)
+            nengo.Connection(self.input_system, self.readout, transform=B_NEF, synapse=tau_syn)
+            nengo.Connection(self.input_measurement, self.readout, transform=K_NEF, synapse=tau_syn)
+            nengo.Connection(self.state, self.readout, transform=A_NEF, synapse=tau_syn)
 
 class LDSNet(nengo.Network):
     """Implements an linear dynamical system with noise
