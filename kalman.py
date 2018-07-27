@@ -264,6 +264,9 @@ class KalmanNet(nengo.Network):
         super(KalmanNet, self).__init__(label=label)
         M, N = C.shape
         L = B.shape[1]
+        print("System A", A)
+        print("System B", B)
+        print("System C", C)
 
         K_ss = find_k_ss(A, C, Q, R, P0)
 
