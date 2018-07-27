@@ -195,7 +195,7 @@ def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000):
         K_process = np.dot(P_predict, C.T)
         K_measure = np.dot(C, np.dot(P_predict, C.T)) + R
         K = np.dot(K_process, np.linalg.inv(K_measure))
-        P = np.dot(np.dot(I_NN-np.dot(K, C)), P_predict)
+        P = np.dot(I_NN-np.dot(K, C), P_predict)
         diff = np.sum(np.abs(K - K_prev)) / entries
         iter_count += 1
         K_prev = K
@@ -227,65 +227,71 @@ class KalmanNet(nengo.Network):
     ----------
     neurons : int
         number of neurons
-    A : NxN numpy array
+    A: NxN numpy array
         System dynamics
         Describes how the previous state mixes to generate the current state
     B: NxL numpy array
         System input matrix
         Describes how the inputs mix to drive the system
-    C : MxN numpy array
+    C: MxN numpy array
         Measurement matrix
         Describes how the system's dimensions mix to produce the output measurement
-    Q : NxN numpy array
+    Q: NxN numpy array
         Intrinsic noise covariance matrix
-    R : MxM numpy array
+    R: MxM numpy array
         Measurement noise covariance matrix
 
     Attributes
     ----------
-    input_y : nengo Node
+    input_measurement : nengo Node
         measurement y
-    output : nengo Node
-        delivers the output state estimate
-    input_u : nengo Node
-        if B provided
-            input u of the system (0 by default)
+    state: nengo Node
+        the state estimate
+    input_system : nengo Node (if B provided)
+        input u of the system
     """
-    def __init__(
-            self, neurons, A, C, Q, R,
-            tau_syn=0.01, P0=0, delta_t=0.001, B=None, label="KalmanNetwork"):
+    def __init__(self, neurons, A, B, C, Q, R,
+                 tau_syn=0.01, P0=0, delta_t=0.001, label="KalmanNetwork"):
         super(KalmanNet, self).__init__(label=label)
         M, N = C.shape
         L = B.shape[1]
 
-        self.K = find_k_ss(A, C, Q, R, P0)
+        K_ss = find_k_ss(A, C, Q, R, P0)
 
-        """
-        Kalman filter update is described in discrete time
+        # Kalman Filter steady-state form
+        # xhat[t] = A_DT xhat[t-1] + B_DT u[t-1] + K_ss y[t]
+        A_DT = np.dot(np.eye(N) - np.dot(K_ss, C), A)
+        B_DT = np.dot(np.eye(N) - np.dot(K_ss, C), B)
+        # print("A_DT", A_DT)
+        # print("B_DT", A_DT)
+        # print("K_SS", K_ss)
 
-        with steady state kalman gain
-            xhat[t] = (I-KC)xhat[t-1] + Ky[t]
-        convert to continuous time
-            in general,
-            dx/dt = (x[t]- x[t-1]) / delta_t so x[t] = dx/dt delta_t + x[t-1]
-            therefore
-                dxhat/dt = -KC/delta_t xhat + K/delta_t y
-        convert to NEF style feedback and feedforward gains
-        dxhat/dt = -tau/delta_t KC xhat + tau/delta_t K y
-        """
-        A_NEF = -tau_syn/delta_t * np.dot(self.K, C)
-        B_NEF = tau_syn/delta_t * self.K
+        # Convert to continuous time form
+        # x[t] = dx/dt delta_t + x[t-1]
+        # dx/dt = A_CT xhat[t-1] + B_CT u[t-1] + K_ss_CT y[t]
+        A_CT = (A_DT - np.eye(N)) / delta_t
+        B_CT = B_DT / delta_t
+        K_ss_CT = K_ss / delta_t
+        # print("A_CT", A_CT)
+        # print("B_CT", A_CT)
+        # print("K_SS_CT", K_ss_CT)
+
+        # Convert to NEF matrices
+        A_NEF = tau_syn * A_CT + np.eye(N)
+        B_NEF = tau_syn * B_CT
+        K_NEF = tau_syn * K_ss_CT
+        # print("A_NEF", A_NEF)
+        # print("B_NEF", A_NEF)
+        # print("K_NEF", K_NEF)
 
         with self:
-            self.input_y = nengo.Node(lambda t, x: x, size_in=M)
-            self.ens = nengo.Ensemble(neurons, N)
-            self.output = nengo.Node(lambda t, x: x, size_in=N)
-            if B:
-                B_input = tau_syn/delta_t * B
-                self.input_u = nengo.Node(lambda t, x: x, size_in=L)
-                nengo.Connection(self.input_u, self.ens, transform=B_input, synapse=tau_syn)
-            nengo.Connection(self.input_y, self.ens, transform=B_NEF, synapse=tau_syn)
-            nengo.Connection(self.ens, self.ens, transform=A_NEF, synapse=tau_syn)
+            self.input_system = nengo.Node(pass_fun, size_in=L)
+            self.input_measurement = nengo.Node(pass_fun, size_in=M)
+            self.state = nengo.Ensemble(neurons, N, neuron_type=nengo.neurons.Direct())
+
+            nengo.Connection(self.input_system, self.state, transform=B_NEF, synapse=tau_syn)
+            nengo.Connection(self.input_measurement, self.state, transform=K_NEF, synapse=tau_syn)
+            nengo.Connection(self.state, self.state, transform=A_NEF, synapse=tau_syn)
 
 class LDSNet(nengo.Network):
     """Implements an linear dynamical system with noise
@@ -317,9 +323,12 @@ class LDSNet(nengo.Network):
 
     Attributes
     ----------
-    input: 
-    state:
-    output:
+    input:  nengo Node
+        provides the input u
+    state: nengo Node
+        maintains the state x
+    output: nengo Node
+        provides the output y
     """
     def __init__(self, A, B, C, D=None, Q=None, R=None, tau_syn=0.1, label="LDSNet"):
         super(LDSNet, self).__init__(label=label)
