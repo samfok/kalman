@@ -30,7 +30,7 @@ class Kalman:
     B: NxL numpy array
         System input matrix
         Describes how the inputs mix to drive the system
-    H: MxN numpy array
+    C: MxN numpy array
         Measurement matrix
         Describes how the system's dimensions mix to produce the output measurement
     Q: NxN numpy array
@@ -38,16 +38,16 @@ class Kalman:
     R: MxM numpy array
         Measurement noise covariance matrix
     """
-    def __init__(self, A, B, H, Q, R, xhat0, phat0):
+    def __init__(self, A, B, C, Q, R, xhat0, phat0):
         self.A = A
         self.B = B
-        self.H = H
+        self.C = C
         self.Q = Q
         self.R = R
 
         N = A.shape[0]
         L = B.shape[1]
-        M = H.shape[0]
+        M = C.shape[0]
 
         assert A.shape == (N, N)
         assert B.shape == (N, L)
@@ -75,15 +75,15 @@ class Kalman:
         """Predict the current state from the previous state estimate"""
         self.xhat_predict = np.dot(self.A, self.xhat) + np.dot(self.B, u)
         self.p_predict = np.dot(self.A, np.dot(self.p, self.A.T)) + self.Q
-        self.z_predict = np.dot(self.H, self.xhat_predict)
+        self.z_predict = np.dot(self.C, self.xhat_predict)
 
     def _update(self, z):
         """Update the state estimate from the current prediction and current measurement"""
-        self.K_process = np.dot(self.p_predict, self.H.T)
-        self.K_measure = np.dot(self.H, np.dot(self.p_predict, self.H.T)) + self.R
+        self.K_process = np.dot(self.p_predict, self.C.T)
+        self.K_measure = np.dot(self.C, np.dot(self.p_predict, self.C.T)) + self.R
         self.K = np.dot(self.K_process, np.linalg.inv(self.K_measure))
         self.xhat = self.xhat_predict + np.dot(self.K, z-self.z_predict)
-        self.p = np.dot(self.eye - np.dot(self.K, self.H), self.p_predict)
+        self.p = np.dot(self.eye - np.dot(self.K, self.C), self.p_predict)
 
 class LDS:
     """Linear dynamical system
@@ -204,11 +204,12 @@ def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000, dbg=False):
         print(iter_count, diff)
     return K
 
-def solve_k_ss(A, C, Q, R, P0):
+def solve_k_ss(A, C, Q, R):
     """Finds the steady state Kalman gain by analytically"""
-    # I'm not sure this is the correct formula, do we have a citation or derivation? - SF
+    # I'm not sure this is the correct formula, do we have a citation or derivation?
+    # I think it's something like the first iteration of the Kalman gain given P0=0 -SF
     R_inv = np.linalg.inv(R)
-    K_den = np.eye+np.dot(Q, np.dot(C, np.dot(R_inv, C)))
+    K_den = np.eye(A.shape[0])+np.dot(Q, np.dot(C.T, np.dot(R_inv, C)))
     K_num = np.dot(Q, np.dot(C.T, R_inv))
     K = np.dot(np.linalg.inv(K_den), K_num)
     return K
