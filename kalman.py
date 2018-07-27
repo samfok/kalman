@@ -170,16 +170,18 @@ def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000, dbg=False):
 
     Parameters
     ----------
-    A : NxN numpy array
+    A: NxN numpy array
         System dynamics
         Describes how the previous state mixes to generate the current state
-    C : MxN numpy array
+    C: MxN numpy array
         Measurement matrix
         Describes how the system's dimensions mix to produce the output measurement
-    Q : NxN numpy array
+    Q: NxN numpy array
         Intrinsic noise covariance matrix
-    R : MxM numpy array
+    R: MxM numpy array
         Measurement noise covariance matrix
+    P0: NxN numpy array
+        Initial error covariance
     """
     P = P0
     M, N = C.shape
@@ -249,6 +251,16 @@ class KalmanNet(nengo.Network):
         Intrinsic noise covariance matrix
     R: MxM numpy array
         Measurement noise covariance matrix
+    tau_syn: float (optional)
+        Synaptic time constant
+    P0: NxN numpy array (optional)
+        Initial error covariance
+    dt: float (optional)
+        time step used ot discretize system
+    neuron_type: nengo neuron model instance (optional)
+        e.g. nengo.neurons.Direct() for doing "just the math"
+    label: string (optional)
+        label for network
 
     Attributes
     ----------
@@ -260,7 +272,8 @@ class KalmanNet(nengo.Network):
         input u of the system
     """
     def __init__(self, neurons, A, B, C, Q, R,
-                 tau_syn=0.01, P0=0, dt=0.001, label="KalmanNetwork"):
+                 tau_syn=0.01, P0=0, dt=0.001,
+                 neuron_type=nengo.neurons.LIF(), label="KalmanNetwork"):
         super(KalmanNet, self).__init__(label=label)
         M, N = C.shape
         L = B.shape[1]
@@ -299,8 +312,7 @@ class KalmanNet(nengo.Network):
         with self:
             self.input_system = nengo.Node(pass_fun, size_in=L)
             self.input_measurement = nengo.Node(pass_fun, size_in=M)
-            # self.state = nengo.Ensemble(neurons, N, neuron_type=nengo.neurons.Direct())
-            self.state = nengo.Ensemble(neurons, N)
+            self.state = nengo.Ensemble(neurons, N, neuron_type=neuron_type)
 
             nengo.Connection(self.input_system, self.state, transform=B_NEF, synapse=tau_syn)
             nengo.Connection(self.input_measurement, self.state, transform=K_NEF, synapse=tau_syn)
