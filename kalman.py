@@ -277,9 +277,9 @@ class KalmanNet(nengo.Network):
         super(KalmanNet, self).__init__(label=label)
         M, N = C.shape
         L = B.shape[1]
-        print("System A", A)
-        print("System B", B)
-        print("System C", C)
+        # print("System A", A)
+        # print("System B", B)
+        # print("System C", C)
 
         K_ss = find_k_ss(A, C, Q, R, P0)
 
@@ -287,9 +287,9 @@ class KalmanNet(nengo.Network):
         # xhat[t] = A xhat[t-1] + B u[t-1] + K_ss y[t]
         A = np.dot(np.eye(N) - np.dot(K_ss, C), A)
         B = np.dot(np.eye(N) - np.dot(K_ss, C), B)
-        print("A", A)
-        print("B", A)
-        print("K_SS", K_ss)
+        # print("A", A)
+        # print("B", A)
+        # print("K_SS", K_ss)
 
         # Convert to continuous time form
         # x[t] = xdot dt + x[t-1]
@@ -297,17 +297,17 @@ class KalmanNet(nengo.Network):
         A_CT = (A - np.eye(N)) / dt
         B_CT = B / dt
         K_ss_CT = K_ss / dt
-        print("A_CT", A_CT)
-        print("B_CT", A_CT)
-        print("K_SS_CT", K_ss_CT)
+        # print("A_CT", A_CT)
+        # print("B_CT", A_CT)
+        # print("K_SS_CT", K_ss_CT)
 
         # Convert to NEF matrices
         A_NEF = tau_syn * A_CT + np.eye(N)
         B_NEF = tau_syn * B_CT
         K_NEF = tau_syn * K_ss_CT
-        print("A_NEF", A_NEF)
-        print("B_NEF", A_NEF)
-        print("K_NEF", K_NEF)
+        # print("A_NEF", A_NEF)
+        # print("B_NEF", A_NEF)
+        # print("K_NEF", K_NEF)
 
         with self:
             self.input_system = nengo.Node(pass_fun, size_in=L)
