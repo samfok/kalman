@@ -219,11 +219,6 @@ def solve_k_ss(A, C, Q, R):
 def pass_fun(t, x):
     return x
 
-def add_random_noise(t, mean, cov):
-    """Adds random noise to a vector"""
-    noise = np.random.multivariate_normal(mean, cov)
-    return noise
-
 def c_to_d_kf(A_CT, B_CT, Q_CT, dt=0.001):
     """Convert continuous form LDS equations into their discrete form"""
     A_DT = dt * A_CT + np.eye(A_CT.shape[0])
@@ -322,6 +317,11 @@ class KalmanNet(nengo.Network):
             nengo.Connection(self.input_measurement, self.readout, transform=K_NEF, synapse=tau_syn)
             nengo.Connection(self.state, self.readout, transform=A_NEF, synapse=tau_syn)
 
+def add_random_noise(t, mean, cov):
+    """Adds random noise to a vector"""
+    noise = np.random.multivariate_normal(mean, cov)
+    return noise
+
 class LDSNet(nengo.Network):
     """Implements an linear dynamical system with noise
 
@@ -375,15 +375,15 @@ class LDSNet(nengo.Network):
             # connect core dynamics
             nengo.Connection(self.input, self.state, transform=B_NEF, synapse=tau_syn)
             nengo.Connection(self.state, self.state, transform=A_NEF, synapse=tau_syn)
-            if Q: # add noise if present
+            if Q is not None: # add noise if present
                 self.process_noise = nengo.Node(lambda t: add_random_noise(t, np.zeros(N), Q))
                 nengo.Connection(
                     self.process_noise, self.state, transform=tau_syn, synapse=tau_syn)
 
             # connect readout
             nengo.Connection(self.state, self.output, transform=C, synapse=None)
-            if D:
+            if D is not None:
                 nengo.Connection(self.input, self.output, transform=D, synapse=None)
-            if R:
+            if R is not None:
                 self.output_noise = nengo.Node(lambda t: add_random_noise(t, np.zeros(M), R))
                 nengo.Connection(self.output_noise, self.output, synapse=None)
