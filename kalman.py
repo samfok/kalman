@@ -317,10 +317,13 @@ class KalmanNet(nengo.Network):
             nengo.Connection(self.input_measurement, self.readout, transform=K_NEF, synapse=tau_syn)
             nengo.Connection(self.state, self.readout, transform=A_NEF, synapse=tau_syn)
 
-def add_random_noise(t, mean, cov):
-    """Adds random noise to a vector"""
-    noise = np.random.multivariate_normal(mean, cov)
-    return noise
+def make_random_fun(mean, cov, dt):
+    """Generate a function that creates random noise"""
+    inv_sqrtdt = 1./np.sqrt(dt)
+    def add_random_noise(t):
+        """Adds random noise to a vector"""
+        return inv_sqrtdt * np.random.multivariate_normal(mean, cov)
+    return add_random_noise
 
 class LDSNet(nengo.Network):
     """Implements an linear dynamical system with noise
@@ -359,7 +362,7 @@ class LDSNet(nengo.Network):
     output: nengo Node
         provides the output y
     """
-    def __init__(self, A, B, C, D=None, Q=None, R=None, tau_syn=0.1, label="LDSNet"):
+    def __init__(self, A, B, C, D=None, Q=None, R=None, tau_syn=0.1, dt=0.001, label="LDSNet"):
         super(LDSNet, self).__init__(label=label)
         N = A.shape[0]
         L = B.shape[1]
@@ -376,7 +379,7 @@ class LDSNet(nengo.Network):
             nengo.Connection(self.input, self.state, transform=B_NEF, synapse=tau_syn)
             nengo.Connection(self.state, self.state, transform=A_NEF, synapse=tau_syn)
             if Q is not None: # add noise if present
-                self.process_noise = nengo.Node(lambda t: add_random_noise(t, np.zeros(N), Q))
+                self.process_noise = nengo.Node(make_random_fun(np.zeros(N), Q, dt))
                 nengo.Connection(
                     self.process_noise, self.state, transform=tau_syn, synapse=tau_syn)
 
@@ -385,5 +388,6 @@ class LDSNet(nengo.Network):
             if D is not None:
                 nengo.Connection(self.input, self.output, transform=D, synapse=None)
             if R is not None:
-                self.output_noise = nengo.Node(lambda t: add_random_noise(t, np.zeros(M), R))
+                # self.output_noise = nengo.Node(lambda t: add_random_noise(t, np.zeros(M), R))
+                self.output_noise = nengo.Node(lambda t: np.random.multivariate_normal(np.zeros(M), R))
                 nengo.Connection(self.output_noise, self.output, synapse=None)
