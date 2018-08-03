@@ -193,9 +193,9 @@ def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000, dbg=False):
     iter_count = 0
     diff = 2*tol
     while iter_count > max_iter or diff > tol:
-        P_predict = np.dot(A, np.dot(P, A.T)) + Q
+        P_predict = np.linalg.multi_dot([A, P, A.T]) + Q
         K_process = np.dot(P_predict, C.T)
-        K_measure = np.dot(C, np.dot(P_predict, C.T)) + R
+        K_measure = np.linalg.multi_dot([C, P_predict, C.T]) + R
         K = np.dot(K_process, np.linalg.inv(K_measure))
         P = np.dot(I_NN-np.dot(K, C), P_predict)
         diff = np.sum(np.abs(K - K_prev)) / entries
@@ -206,25 +206,24 @@ def find_k_ss(A, C, Q, R, P0, tol=1E-5, max_iter=1000, dbg=False):
         print(iter_count, diff)
     return K
 
-def solve_k_ss(A, C, Q, R):
-    """Finds the steady state Kalman gain by analytically"""
-    # I'm not sure this is the correct formula, do we have a citation or derivation?
-    # I think it's something like the first iteration of the Kalman gain given P0=0 -SF
-    R_inv = np.linalg.inv(R)
-    K_den = np.eye(A.shape[0])+np.dot(Q, np.dot(C.T, np.dot(R_inv, C)))
-    K_num = np.dot(Q, np.dot(C.T, R_inv))
-    K = np.dot(np.linalg.inv(K_den), K_num)
-    return K
-
 def pass_fun(t, x):
     return x
 
-def c_to_d_kf(A_CT, B_CT, Q_CT, dt=0.001):
+def c_to_d_kf(A_CT, B_CT, Q_CT, R_CT, dt):
     """Convert continuous form LDS equations into their discrete form"""
     A_DT = dt * A_CT + np.eye(A_CT.shape[0])
     B_DT = dt * B_CT
-    Q_DT = Q_CT * dt
-    return A_DT, B_DT, Q_DT
+
+    # Q_DT = Q_CT / dt
+    # R_DT = R_CT / dt
+
+    # Q_DT = Q_CT*dt
+    # R_DT = R_CT
+
+    Q_DT = Q_CT
+    R_DT = R_CT/dt
+
+    return A_DT, B_DT, Q_DT, R_DT
 
 class KalmanNet(nengo.Network):
     """A Kalman filter nengo Network
@@ -267,23 +266,21 @@ class KalmanNet(nengo.Network):
         input u of the system
     """
     def __init__(self, neurons, A, B, C, Q, R,
-                 tau_syn=0.01, P0=0, dt=0.001,
-                 neuron_type=nengo.neurons.LIF(), label="KalmanNetwork"):
+                 tau_syn=0.01, dt=0.001,
+                 neuron_type=nengo.neurons.LIF(), label="KalmanNetwork", verbose=False):
         super(KalmanNet, self).__init__(label=label)
         M, N = C.shape
         L = B.shape[1]
-        # print("System A", A)
-        # print("System B", B)
-        # print("System C", C)
 
+        P0 = np.zeros_like(A)
         # Kalman Filter steady-state form
         # xhat[t] = A_K xhat[t-1] + B_K u[t-1] + K_ss y[t]
-        K_ss = find_k_ss(A, C, Q, R, P0)
+        if np.all(Q==0) and np.all(R==0): # handle no-noise case
+            K_ss = np.eye(N, M)
+        else:
+            K_ss = find_k_ss(A, C, Q, R, P0)
         A_K = np.dot(np.eye(N) - np.dot(K_ss, C), A)
         B_K = np.dot(np.eye(N) - np.dot(K_ss, C), B)
-        # print("A_K", A_K)
-        # print("B_K", A_K)
-        # print("K_SS", K_ss)
 
         # Convert to continuous time form
         # x[t] = xdot dt + x[t-1]
@@ -291,17 +288,25 @@ class KalmanNet(nengo.Network):
         A_CT = (A_K - np.eye(N)) / dt
         B_CT = B_K / dt
         K_ss_CT = K_ss / dt
-        # print("A_CT", A_CT)
-        # print("B_CT", A_CT)
-        # print("K_SS_CT", K_ss_CT)
 
         # Convert to NEF matrices
         A_NEF = tau_syn * A_CT + np.eye(N)
         B_NEF = tau_syn * B_CT
         K_NEF = tau_syn * K_ss_CT
-        # print("A_NEF", A_NEF)
-        # print("B_NEF", A_NEF)
-        # print("K_NEF", K_NEF)
+
+        if verbose:
+            print("A_DT\n", A)
+            print("B_DT\n", B)
+            print("C_DT\n", C)
+            print("A_K\n", A_K)
+            print("B_K\n", A_K)
+            print("K_SS\n", K_ss)
+            print("A_CT\n", A_CT)
+            print("B_CT\n", A_CT)
+            print("K_SS_CT\n", K_ss_CT)
+            print("A_NEF\n", A_NEF)
+            print("B_NEF\n", A_NEF)
+            print("K_NEF\n", K_NEF)
 
         with self:
             self.input_system = nengo.Node(pass_fun, size_in=L)
@@ -362,7 +367,7 @@ class LDSNet(nengo.Network):
     output: nengo Node
         provides the output y
     """
-    def __init__(self, A, B, C, D=None, Q=None, R=None, tau_syn=0.1, dt=0.001, label="LDSNet"):
+    def __init__(self, A, B, C, D=None, Q=None, R=None, tau_syn=1.0, dt=0.001, label="LDSNet"):
         super(LDSNet, self).__init__(label=label)
         N = A.shape[0]
         L = B.shape[1]
@@ -388,6 +393,5 @@ class LDSNet(nengo.Network):
             if D is not None:
                 nengo.Connection(self.input, self.output, transform=D, synapse=None)
             if R is not None:
-                # self.output_noise = nengo.Node(lambda t: add_random_noise(t, np.zeros(M), R))
-                self.output_noise = nengo.Node(lambda t: np.random.multivariate_normal(np.zeros(M), R))
+                self.output_noise = nengo.Node(make_random_fun(np.zeros(M), R, dt=1))
                 nengo.Connection(self.output_noise, self.output, synapse=None)
