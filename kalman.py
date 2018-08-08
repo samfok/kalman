@@ -220,37 +220,43 @@ def c_to_d_kf(A_CT, B_CT, Q_CT, R_CT, dt):
     # Q_DT = Q_CT*dt
     # R_DT = R_CT
 
-    Q_DT = Q_CT
+    Q_DT = Q_CT*dt
     R_DT = R_CT/dt
 
     return A_DT, B_DT, Q_DT, R_DT
 
-class KalmanNet(nengo.Network):
-    """A Kalman filter nengo Network
+class KalmanNetDT(nengo.Network):
+    """A Kalman filter nengo Network built for the discrete time system
+
+    x[t] = A_DTx[t-1] + B_DTu[t] + v[t]
+    y[t] = C_DTx[t] + w[t]
+
+    v[t] ~ normal(0, Q_DT)
+    w[t] ~ normal(0, R_DT) 
 
     Parameters
     ----------
     neurons : int
         number of neurons
-    A: NxN numpy array
+    A_DT: NxN numpy array
         System dynamics
         Describes how the previous state mixes to generate the current state
-    B: NxL numpy array
+    B_DT: NxL numpy array
         System input matrix
         Describes how the inputs mix to drive the system
-    C: MxN numpy array
+    C_DT: MxN numpy array
         Measurement matrix
         Describes how the system's dimensions mix to produce the output measurement
-    Q: NxN numpy array
+    Q_DT: NxN numpy array
         Intrinsic noise covariance matrix
-    R: MxM numpy array
+    R_DT: MxM numpy array
         Measurement noise covariance matrix
     tau_syn: float (optional)
         Synaptic time constant
     P0: NxN numpy array (optional)
         Initial error covariance
     dt: float (optional)
-        time step used ot discretize system
+        time step used to discretize system
     neuron_type: nengo neuron model instance (optional)
         e.g. nengo.neurons.Direct() for doing "just the math"
     label: string (optional)
@@ -264,23 +270,25 @@ class KalmanNet(nengo.Network):
         the state estimate
     input_system : nengo Node (if B provided)
         input u of the system
+    readout: nengo Node
+        the state readout
     """
-    def __init__(self, neurons, A, B, C, Q, R,
+    def __init__(self, neurons, A_DT, B_DT, C_DT, Q_DT, R_DT,
                  tau_syn=0.01, dt=0.001,
                  neuron_type=nengo.neurons.LIF(), label="KalmanNetwork", verbose=False):
         super(KalmanNet, self).__init__(label=label)
-        M, N = C.shape
-        L = B.shape[1]
+        M, N = C_DT.shape
+        L = B_DT.shape[1]
 
-        P0 = np.zeros_like(A)
+        P0 = np.zeros_like(A_DT)
         # Kalman Filter steady-state form
         # xhat[t] = A_K xhat[t-1] + B_K u[t-1] + K_ss y[t]
-        if np.all(Q==0) and np.all(R==0): # handle no-noise case
+        if np.all(Q_DT==0) and np.all(R_DT==0): # handle no-noise case
             K_ss = np.eye(N, M)
         else:
-            K_ss = find_k_ss(A, C, Q, R, P0)
-        A_K = np.dot(np.eye(N) - np.dot(K_ss, C), A)
-        B_K = np.dot(np.eye(N) - np.dot(K_ss, C), B)
+            K_ss = find_k_ss(A_DT, C_DT, Q_DT, R_DT, P0)
+        A_K = np.dot(np.eye(N) - np.dot(K_ss, C_DT), A_DT)
+        B_K = np.dot(np.eye(N) - np.dot(K_ss, C_DT), B_DT)
 
         # Convert to continuous time form
         # x[t] = xdot dt + x[t-1]
@@ -295,9 +303,9 @@ class KalmanNet(nengo.Network):
         K_NEF = tau_syn * K_ss_CT
 
         if verbose:
-            print("A_DT\n", A)
-            print("B_DT\n", B)
-            print("C_DT\n", C)
+            print("A_DT\n", A_DT)
+            print("B_DT\n", B_DT)
+            print("C_DT\n", C_DT)
             print("A_K\n", A_K)
             print("B_K\n", A_K)
             print("K_SS\n", K_ss)
@@ -321,6 +329,68 @@ class KalmanNet(nengo.Network):
             nengo.Connection(self.input_system, self.readout, transform=B_NEF, synapse=tau_syn)
             nengo.Connection(self.input_measurement, self.readout, transform=K_NEF, synapse=tau_syn)
             nengo.Connection(self.state, self.readout, transform=A_NEF, synapse=tau_syn)
+
+def KalmanNet(KalmanNetDT):
+    """A Kalman filter nengo Network built for the continuous time system
+
+    dx/dt = Ax + Bu + v
+    y = Cx + w
+
+    v(t) ~ normal(0, Q)
+    w(t) ~ normal(0, R)
+
+    Parameters
+    ----------
+    neurons : int
+        number of neurons
+    A: NxN numpy array
+        System dynamics
+        Describes how the previous state mixes to generate the current state
+    B: NxL numpy array
+        System input matrix
+        Describes how the inputs mix to drive the system
+    C: MxN numpy array
+        Measurement matrix
+        Describes how the system's dimensions mix to produce the output measurement
+    Q: NxN numpy array
+        Intrinsic noise covariance matrix
+    R: MxM numpy array
+        Measurement noise covariance matrix
+    tau_syn: float (optional)
+        Synaptic time constant
+    P0: NxN numpy array (optional)
+        Initial error covariance
+    dt: float (optional)
+        time step used to discretize system
+    neuron_type: nengo neuron model instance (optional)
+        e.g. nengo.neurons.Direct() for doing "just the math"
+    label: string (optional)
+        label for network
+
+    Attributes
+    ----------
+    input_measurement : nengo Node
+        measurement y
+    state: nengo Node
+        the state estimate
+    input_system : nengo Node (if B provided)
+        input u of the system
+    readout: nengo Node
+        the state readout
+    """
+    def __init__(self, neurons, A, B, C, Q, R,
+                 tau_syn=0.01, dt=0.001,
+                 neuron_type=nengo.neurons.LIF(), label="KalmanNetwork", verbose=False):
+        A_DT, B_DT, Q_DT, R_DT = c_to_d_kf(A, B, Q, R, dt)
+        if verbose:
+            print("A", A)
+            print("B", B)
+            print("C", C)
+            print("Q", Q)
+            print("R", R)
+        super(KalmanNet, self).__init__(
+            neurons, A_DT, B_DT, C_DT, Q_DT, R_DT,
+            dt=dt, tau=tau, neuron_type=neuron_type, label=label, verbose=verbose)
 
 def make_random_fun(mean, cov, dt):
     """Generate a function that creates random noise"""
