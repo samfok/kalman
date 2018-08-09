@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import nengo
 import nengo_brainstorm
 from kalman import KalmanNet, LDSNet
@@ -14,13 +15,14 @@ D = np.zeros_like(A)
 Q = np.array([[0.1]])
 R = np.array([[0.01]])
 
+fig, ax = plt.subplots(figsize=(8, 6))
 # run underlying dynamical system beforehand
 STIM_PARAMS = {0: 1, 5*SYS_TAU: 0}
-def run_underlying_system(A, B, C, D, Q, R, stim_params)
+def run_underlying_system()
     state_model = nengo.Network()
     with state_model:
         lds_net = LDSNet(A, B, C, D, Q, R)
-        stim = nengo.Node(nengo.utils.functions.piecewise(stim_params))
+        stim = nengo.Node(nengo.utils.functions.piecewise(STIM_PARAMS))
         nengo.Connection(stim, lds_net.input, synapse=None)
         stim_probe = nengo.Probe(stim)
         lds_state_probe = nengo.Probe(lds_net.state)
@@ -36,6 +38,17 @@ def run_underlying_system(A, B, C, D, Q, R, stim_params)
 STIM_DATA, MEASURE_DATA = run_underlying_system(A, B, C, D, Q, R, STIM_PARAMS)
 
 # run with reference nengo
+ref_model = nengo.Network()
+with ref_model:
+    knet = KalmanNet(256, A, B, C, Q, R, DELTA_T)
+    stim_input = nengo.Node(nengo.utils.functions.piecewise(stim_data))
+    stim_measure = nengo.Node(nengo.utils.functions.piecewise(measure_data))
+    nengo.Connection(stim_input, knet.input_system, synapse=None)
+    nengo.Connection(stim_measure, knet.input_system, synapse=None)
+    probe_readout = nengo.Probe(knet.readout)
+sim = nengo.Simulator(ref_model)
+sim.run(SIM_TIME)
+sim.data[probe_readout]
 
 # run with braindrop
 model = nengo.Network()
