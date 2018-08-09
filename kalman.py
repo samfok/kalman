@@ -1,3 +1,5 @@
+"""Defines Kalman filter and dynamical system implementations
+"""
 import numpy as np
 import nengo
 
@@ -214,13 +216,13 @@ def c_to_d_kf(A_CT, B_CT, Q_CT, R_CT, dt):
     A_DT = dt * A_CT + np.eye(A_CT.shape[0])
     B_DT = dt * B_CT
 
-    # Q_DT = Q_CT / dt
-    # R_DT = R_CT / dt
-
     # Q_DT = Q_CT*dt
     # R_DT = R_CT
 
-    Q_DT = Q_CT*dt
+    # Q_DT = Q_CT*dt
+    # R_DT = R_CT/dt
+
+    Q_DT = Q_CT
     R_DT = R_CT/dt
 
     return A_DT, B_DT, Q_DT, R_DT
@@ -232,7 +234,7 @@ class KalmanNetDT(nengo.Network):
     y[t] = C_DTx[t] + w[t]
 
     v[t] ~ normal(0, Q_DT)
-    w[t] ~ normal(0, R_DT) 
+    w[t] ~ normal(0, R_DT)
 
     Parameters
     ----------
@@ -276,14 +278,14 @@ class KalmanNetDT(nengo.Network):
     def __init__(self, neurons, A_DT, B_DT, C_DT, Q_DT, R_DT,
                  tau_syn=0.01, dt=0.001,
                  neuron_type=nengo.neurons.LIF(), label="KalmanNetwork", verbose=False):
-        super(KalmanNet, self).__init__(label=label)
+        super(KalmanNetDT, self).__init__(label=label)
         M, N = C_DT.shape
         L = B_DT.shape[1]
 
         P0 = np.zeros_like(A_DT)
         # Kalman Filter steady-state form
         # xhat[t] = A_K xhat[t-1] + B_K u[t-1] + K_ss y[t]
-        if np.all(Q_DT==0) and np.all(R_DT==0): # handle no-noise case
+        if np.all(Q_DT == 0) and np.all(R_DT == 0): # handle no-noise case
             K_ss = np.eye(N, M)
         else:
             K_ss = find_k_ss(A_DT, C_DT, Q_DT, R_DT, P0)
@@ -330,7 +332,7 @@ class KalmanNetDT(nengo.Network):
             nengo.Connection(self.input_measurement, self.readout, transform=K_NEF, synapse=tau_syn)
             nengo.Connection(self.state, self.readout, transform=A_NEF, synapse=tau_syn)
 
-def KalmanNet(KalmanNetDT):
+class KalmanNet(KalmanNetDT):
     """A Kalman filter nengo Network built for the continuous time system
 
     dx/dt = Ax + Bu + v
@@ -378,10 +380,11 @@ def KalmanNet(KalmanNetDT):
     readout: nengo Node
         the state readout
     """
-    def __init__(self, neurons, A, B, C, Q, R,
-                 tau_syn=0.01, dt=0.001,
+    def __init__(self, neurons, A, B, C, Q, R, dt,
+                 tau_syn=0.01,
                  neuron_type=nengo.neurons.LIF(), label="KalmanNetwork", verbose=False):
         A_DT, B_DT, Q_DT, R_DT = c_to_d_kf(A, B, Q, R, dt)
+        C_DT = C
         if verbose:
             print("A", A)
             print("B", B)
@@ -390,7 +393,7 @@ def KalmanNet(KalmanNetDT):
             print("R", R)
         super(KalmanNet, self).__init__(
             neurons, A_DT, B_DT, C_DT, Q_DT, R_DT,
-            dt=dt, tau=tau, neuron_type=neuron_type, label=label, verbose=verbose)
+            dt=dt, tau_syn=tau_syn, neuron_type=neuron_type, label=label, verbose=verbose)
 
 def make_random_fun(mean, cov, dt):
     """Generate a function that creates random noise"""
