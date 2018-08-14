@@ -35,7 +35,7 @@ class GyroNet(nengo.Network):
             nengo.Connection(self.input, gyro_state[1], transform=g_B, synapse=g_tau)
             nengo.Connection(gyro_state, gyro_state, transform=g_A, synapse=g_tau)
 
-            # accel = nengo.Node(lambda t, x: x, size_in=1, size_out=1)
+            accel = nengo.Node(lambda t, x: x, size_in=1, size_out=1)
 
             self.output= nengo.Node(lambda t, x: x, size_in=2, size_out=2, label="output")
             nengo.Connection(gyro_state, self.output, synapse=None)

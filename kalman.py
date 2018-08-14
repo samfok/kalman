@@ -315,22 +315,41 @@ class KalmanNetDT(nengo.Network):
             print("B_CT\n", A_CT)
             print("K_SS_CT\n", K_ss_CT)
             print("A_NEF\n", A_NEF)
-            print("B_NEF\n", A_NEF)
+            print("B_NEF\n", B_NEF)
             print("K_NEF\n", K_NEF)
 
         with self:
             self.input_system = nengo.Node(pass_fun, size_in=L)
             self.input_measurement = nengo.Node(pass_fun, size_in=M)
             self.state = nengo.Ensemble(neurons, N, neuron_type=neuron_type)
-
-            nengo.Connection(self.input_system, self.state, transform=B_NEF, synapse=tau_syn)
-            nengo.Connection(self.input_measurement, self.state, transform=K_NEF, synapse=tau_syn)
-            nengo.Connection(self.state, self.state, transform=A_NEF, synapse=tau_syn)
-
             self.readout = nengo.Node(pass_fun, size_in=N)
-            nengo.Connection(self.input_system, self.readout, transform=B_NEF, synapse=tau_syn)
-            nengo.Connection(self.input_measurement, self.readout, transform=K_NEF, synapse=tau_syn)
-            nengo.Connection(self.state, self.readout, transform=A_NEF, synapse=tau_syn)
+
+            nengo.Connection(
+                self.input_system, self.state, function=lambda x:np.dot(B_NEF, x), synapse=tau_syn)
+            nengo.Connection(
+                self.input_measurement, self.state, function=lambda x:np.dot(K_NEF, x),
+                synapse=tau_syn)
+            nengo.Connection(
+                self.state, self.state, function=lambda x: np.dot(A_NEF, x), synapse=tau_syn)
+
+            # nengo.Connection(self.input_system, self.state, transform=B_NEF, synapse=tau_syn)
+            # nengo.Connection(self.input_measurement, self.state, transform=K_NEF, synapse=tau_syn)
+            # nengo.Connection(self.state, self.state, transform=A_NEF, synapse=tau_syn)
+
+            nengo.Connection(
+                self.input_system, self.readout,
+                function=lambda x: np.dot(B_NEF, x), synapse=tau_syn)
+            nengo.Connection(
+                self.input_measurement, self.readout,
+                function=lambda x:np.dot(K_NEF, x), synapse=tau_syn)
+            nengo.Connection(
+                self.state, self.readout,
+                function=lambda x: np.dot(A_NEF, x), synapse=tau_syn)
+
+            # nengo.Connection(self.input_system, self.readout, transform=B_NEF, synapse=tau_syn)
+            # nengo.Connection(
+            #     self.input_measurement, self.readout, transform=K_NEF, synapse=tau_syn)
+            # nengo.Connection(self.state, self.readout, transform=A_NEF, synapse=tau_syn)
 
 class KalmanNet(KalmanNetDT):
     """A Kalman filter nengo Network built for the continuous time system

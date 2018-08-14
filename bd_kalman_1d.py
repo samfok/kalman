@@ -4,23 +4,24 @@ import nengo
 import nengo_brainstorm
 from kalman import KalmanNet, LDSNet
 
-SYS_TAU = 0.01
-SIM_TIME = 50*SYS_TAU
+TAU_SYS = 0.01
+TAU_SYN = 0.04
+SIM_TIME = 50*TAU_SYS
 
 DELTA_T = 0.001 # discretization time
-A = np.array([[-1/SYS_TAU]])
-B = np.array([[1/SYS_TAU]])
+A = np.array([[-1/TAU_SYS]])
+B = np.array([[1/TAU_SYS]])
 C = np.array([[1]])
 D = np.zeros_like(A)
 Q = np.array([[0.1]])
-R = np.array([[0.001]])
+R = np.array([[0.01]])
 
 STIM_PARAMS = {
     0: 1,
-    10*SYS_TAU: 0,
-    20*SYS_TAU: 1,
-    30*SYS_TAU: 0,
-    40*SYS_TAU: 1,
+    10*TAU_SYS: 0,
+    20*TAU_SYS: 1,
+    30*TAU_SYS: 0,
+    40*TAU_SYS: 1,
 }
 
 fig, ax = plt.subplots(figsize=(16, 12))
@@ -68,20 +69,25 @@ sim.run(SIM_TIME)
 # plot underlying dynamical system results
 ax.plot(sim.trange(), sim.data[probe_readout_ref], alpha=0.5, label="KF reference")
 ax.plot(sim.trange(), sim.data[probe_readout_spiking], alpha=0.5,
-        label="KF {} simulated nengo neurons".format(knet_spiking.state.n_neurons))
+        label="KF {} simulated reference nengo neurons".format(knet_spiking.state.n_neurons))
 
-# # run with braindrop
-# model = nengo.Network()
-# with model:
-#     knet = KalmanNet(256, A, B, C, Q, R, DELTA_T)
-#     stim_input = nengo.Node(nengo.utils.functions.piecewise(STIM_PARAMS))
-#     stim_measure = nengo.Node(nengo.utils.functions.piecewise(measure_data))
-#     nengo.Connection(stim_input, knet.input_system, synapse=None)
-#     nengo.Connection(stim_measure, knet.input_system, synapse=None)
-#     probe_readout = nengo.Probe(knet.readout)
-# 
-# sim = nengo_brainstorm.Simulator(model)
-# sim.run(SIM_TIME)
+# run with braindrop
+model = nengo.Network()
+nengo_brainstorm.add_params(model)
+# model.config.solver = nengo_brainstorm.solvers.CVXSolver()
+with model:
+    knet = KalmanNet(256, A, B, C, Q, R, DELTA_T, tau_syn=TAU_SYN, verbose=True)
+    stim_input = nengo.Node(nengo.utils.functions.piecewise(STIM_PARAMS))
+    stim_measure = nengo.Node(nengo.utils.functions.piecewise(measure_data))
+    nengo.Connection(stim_input, knet.input_system, synapse=None)
+    nengo.Connection(stim_measure, knet.input_measurement, synapse=None)
+    probe_readout = nengo.Probe(knet.readout)
+sim = nengo_brainstorm.Simulator(model)
+sim.run(SIM_TIME)
+
+# plot BD results
+ax.plot(sim.trange(), sim.data[probe_readout], alpha=0.5,
+        label="KF {} BD neurons".format(knet.state.n_neurons))
 
 ax.legend(loc="best")
 plt.show()
